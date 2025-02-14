@@ -1,6 +1,8 @@
-use std::{f32::consts, ops::RangeBounds};
-use rand::random_range;
+use std::{clone, f32::consts, ops::RangeBounds};
+use rand::{random_range, seq::IndexedRandom};
+    
 
+#[derive(Clone, Copy)]
 pub struct Insect{
     pos: [f32; 2],
     //0,1 are vector, 2 is angle of said vector
@@ -22,11 +24,12 @@ impl Insect{
         Insect { pos: [random_range(limits[0]..limits[1]) as f32, random_range(limits[2]..limits[3]) as f32], direction, steps_from_food: 0, steps_from_base: 0}
     }
 
-    fn move_pos(&self, speed: f32) -> Insect {
+    fn move_pos(&self, speed: f32, map_limits: [u32; 2]) -> Insect {
         let angle: f32 = random_range(-0.17..=0.17);
 
         let mut direction:[f32;3] = [0., 0., 0.];
         let mut pos:[f32;2] = [0., 0.];
+        let map_limits = [map_limits[0] as f32, map_limits[1] as f32];
 
         direction[0] = (self.direction[2] + angle).cos();
         direction[1] = (self.direction[2] + angle).sin();
@@ -34,6 +37,19 @@ impl Insect{
 
         pos[0] += self.direction[0] * speed;
         pos[1] += self.direction[1] * speed;
+
+        if pos[0] > map_limits[0]{
+            pos[0] -= map_limits[0] 
+        }
+        if pos[0] < 0.{
+            pos[0] += map_limits[0]
+        }
+        if pos[1] > map_limits[1]{
+            pos[1] -= map_limits[1]
+        }
+        if pos[1] < 0.{
+            pos[1] += map_limits[1]
+        }
 
         let steps_from_base = self.steps_from_base + 1;
         let steps_from_food = self.steps_from_food + 1;
@@ -69,20 +85,17 @@ impl Base {
     
 }
 
-enum Object {
-    Insect(Insect),
-    FoodSource(FoodSource),
-    Base(Base)
-}
-
 struct Cell{
-    objects: Vec<Object>,
+    insects: Vec<Insect>,
+    bases: Vec<Base>,
+    food_sources: Vec<FoodSource>,
+    pos: [u32; 2]
 }
 
 impl Cell {
 
-    fn new (objects: Vec<Object>) -> Cell{
-        Cell { objects }
+    fn new (insects: Vec<Insect>, bases: Vec<Base>, food_sources: Vec<FoodSource>, pos: [u32; 2]) -> Cell{
+        Cell {insects, bases, food_sources, pos}
     }
     
 }
@@ -120,25 +133,27 @@ impl Map {
             let cell_y= cell_num/size[0];
 
             let cell_bounds =[(cell_x - 1) * cell_size, cell_x * cell_size, (cell_y - 1) * cell_size, cell_y * cell_size];
-            let mut objects: Vec<Object> = Vec::new();
+            let mut insects: Vec<Insect> = Vec::new();
+            let mut bases: Vec<Base> = Vec::new();
+            let mut food_sources: Vec<FoodSource> = Vec::new();
 
             for _ in 0..=num_insects / num_cells {
-                objects.push(Object::Insect(Insect::new_random(cell_bounds)));
+                insects.push(Insect::new_random(cell_bounds));
             }
 
             for pos in &base_cells {
                 if pos[0]+pos[1]*size[0] == cell_num{
-                    objects.push(Object::Base(Base::new_random(cell_bounds, base_size)))
+                    bases.push(Base::new_random(cell_bounds, base_size));
                 }
             }
 
             for pos in &food_source_cells{
                 if pos[0]+pos[1]*size[0] == cell_num{
-                    objects.push(Object::FoodSource(FoodSource::new_random(cell_bounds, base_size)))
+                    food_sources.push(FoodSource::new_random(cell_bounds, base_size));
                 }
             }
 
-            cells.push(Cell::new(objects))
+            cells.push(Cell::new(insects, bases, food_sources, [cell_x, cell_y]));
 
 
         }
@@ -148,33 +163,46 @@ impl Map {
 
     pub fn move_insects (self, speed: f32) -> Map{
         let mut off_grid_insects: Vec<Insect> = Vec::new();
-        let cells: Vec<Cell> = Vec::new();
+        let mut cells: Vec<Cell> = Vec::new();
 
-        for cell in  &self.grid {
+        for cell in self.grid {
             
-            let mut objects: Vec<Insect> = Vec::new();
-            let cell_bounds =[((self.width-1) * self.cell_size) as f32 ..= (self.width * self.cell_size) as f32 , ((self.height - 1) * self.cell_size) as f32 ..= (self.height * self.cell_size) as f32];
-            for object in &cell.objects {
-                match object {
-                    Object::Insect(prev)=> {
-                        let insect = prev.move_pos(speed);
-                        if cell_bounds[0].contains(&insect.pos[0]) || cell_bounds[1].contains(&insect.pos[1]){
-                            objects.push(insect);
-                            continue;
-                        }
-                        off_grid_insects.push(insect);
-                        continue;
-                    },
-                    _ => {},
+            let mut insects: Vec<Insect> = Vec::new();
+            let cell_bounds =[((cell.pos[0]-1) * self.cell_size) as f32 ..= (cell.pos[0] * self.cell_size) as f32 , ((cell.pos[1]- 1) * self.cell_size) as f32 ..= (cell.pos[1] * self.cell_size) as f32];
+
+            for insect in &cell.insects{
+                let moved_insect = insect.move_pos(speed, [self.width, self.height]);
+                if cell_bounds[0].contains(&moved_insect.pos[0]) || cell_bounds[1].contains(&moved_insect.pos[1]){
+                    insects.push(moved_insect);
+                    continue;
                 }
-
+                off_grid_insects.push(moved_insect);
+                continue;
             }
-            
+
+            cells.push(Cell::new(insects, cell.bases, cell.food_sources, cell.pos));
         }
 
-        self
+        for i in 0..cells.len() {
 
+            let cell = &cells[i];
+            let cell_bounds =[((cell.pos[0]-1) * self.cell_size) as f32 ..= (cell.pos[0] * self.cell_size) as f32 , ((cell.pos[1]- 1) * self.cell_size) as f32 ..= (cell.pos[1] * self.cell_size) as f32];
+
+            for insect in &off_grid_insects{
+                if cell_bounds[0].contains(&insect.pos[0]) || cell_bounds[1].contains(&insect.pos[1]){
+                    cells[i].insects.push(*insect);
+                }
+            }
+
+
+        }
+
+        Map { grid: cells, height: self.height, width: self.height, cell_size: self.cell_size}
     }
+
+   pub fn collisions (self) -> Map{
+
+   } 
     
 }
 
