@@ -1,0 +1,3 @@
+Try to fix screaming function
+Profile program to see what else takes up alot of time
+Add multythreading

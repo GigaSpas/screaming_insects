@@ -4,4 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+flo_canvas = "0.3.1"
+flo_draw = "0.3.1"
+flo_stream = "0.7.0"
+futures = "0.3.31"
+futures-timer = "3.0.3"
 rand = "0.9.0"
